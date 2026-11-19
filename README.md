@@ -4,7 +4,7 @@ A Lumatone-style hexagonal keyboard built from an iPad Air 4 (A2316) and a 3D-pr
 
 ## Layout
 - `touch-test/` — step 1: single-key test page. Shows raw touch position, contact radius, press timing and bounces; exports a CSV.
-- `app/` — the instrument (planned).
+- `app/` — the instrument: hex grid, four layouts, chord engine with passing chords, built-in sounds, MIDI output via the bridge.
 - `bridge/` — WebSocket → MIDI script for a Mac/PC (planned; Safari has no Web MIDI).
 - `hardware/` — OpenSCAD files for caps, springs and frame (planned).
 

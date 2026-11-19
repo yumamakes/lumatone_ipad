@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hexboard">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Hexboard</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; touch-action: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    font: 14px -apple-system, system-ui, sans-serif; color: #ddd; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  /* 18 mm control strip on the A2316 = 94 CSS px */
+  #strip { position: fixed; top: 0; left: 0; right: 0; height: 94px; box-sizing: border-box; z-index: 2;
+    display: flex; gap: 6px; padding: 10px 8px; background: #111; }
+  #strip button { flex: 0 0 84px; padding: 0; font: inherit; color: #ddd; background: #222;
+    border: 1px solid #333; border-radius: 10px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2px; }
+  #strip small { font-size: 11px; color: #888; }
+  #strip button span { font-size: 14px; }
+  #strip button.on { background: #5DCAA5; border-color: #5DCAA5; color: #04342C; }
+  #strip button.on small { color: #085041; }
+  #b-pass { flex-basis: 92px; background: #3a2a10; border-color: #BA7517; font-size: 16px; }
+  #b-pass.on { background: #FAC775; border-color: #FAC775; color: #412402; }
+  .slider { flex: 0 0 110px; position: relative; background: #222; border: 1px solid #333; border-radius: 10px; }
+  .slider small { position: absolute; top: 6px; left: 8px; }
+  .slider i { position: absolute; top: 24px; bottom: 8px; left: 50%; width: 6px; margin-left: -3px;
+    border-radius: 3px; background: #B4B2A9; }
+  #readout { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; padding-left: 8px; }
+  #r-chord { font-size: 26px; font-weight: 500; color: #fff; }
+  #r-pass { font-size: 12px; color: #FAC775; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #splash { position: fixed; inset: 0; z-index: 5; background: #000; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px; font-size: 28px; }
+  #splash small { font-size: 14px; color: #888; }
+  #rotate { display: none; }
+  @media (orientation: portrait) {
+    #rotate { display: flex; position: fixed; inset: 0; z-index: 6; background: #000;
+      align-items: center; justify-content: center; font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<div id="strip">
+  <button id="b-layout"><small>Layout</small><span></span></button>
+  <button id="b-key"><small>Key</small><span></span></button>
+  <button id="b-lock"><small>Scale lock</small><span></span></button>
+  <button id="b-sound"><small>Sound</small><span></span></button>
+  <button id="b-out"><small>Output</small><span></span></button>
+  <button id="b-ptype"><small>Pass type</small><span></span></button>
+  <button id="b-pass"><span>Pass</span></button>
+  <button id="b-latch"><small>Latch</small><span></span></button>
+  <div class="slider" id="s-pitch"><small>Pitch</small><i></i></div>
+  <div class="slider" id="s-mod"><small>Mod</small><i></i></div>
+  <div id="readout"><div id="r-chord">—</div><div id="r-pass"></div></div>
+</div>
+<canvas id="keys"></canvas>
+<div id="splash">Tap to start<small>Turns on sound</small></div>
+<div id="rotate">Rotate to landscape</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
