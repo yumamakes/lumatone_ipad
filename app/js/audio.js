@@ -11,6 +11,7 @@ export class Synth {
     this.ctx = null;
     this.inst = 0;
     this.voices = new Map();
+    this.live = new Set(); // every oscillator not yet ended, including releasing voices
     this.bendCents = 0;
   }
 
@@ -18,17 +19,21 @@ export class Synth {
     if (this.ctx) { this.ctx.resume(); return; }
     try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (_) {}
     const c = this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    const comp = c.createDynamicsCompressor();
-    comp.connect(c.destination);
-    this.master = c.createGain();
-    this.master.gain.value = 0.3;
-    this.master.connect(comp);
+    this.comp = c.createDynamicsCompressor();
+    this.comp.connect(c.destination);
+    this.newMaster();
     const lfo = c.createOscillator();
     lfo.frequency.value = 5.5;
     this.vib = c.createGain();
     this.vib.gain.value = 0;
     lfo.connect(this.vib);
     lfo.start();
+  }
+
+  newMaster() {
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.3;
+    this.master.connect(this.comp);
   }
 
   osc(type, freq, dest, offCents = 0) {
@@ -38,7 +43,8 @@ export class Synth {
     o.off = offCents;
     o.detune.value = this.bendCents + offCents;
     this.vib.connect(o.detune);
-    o.onended = () => { try { this.vib.disconnect(o.detune); } catch (_) {} };
+    this.live.add(o);
+    o.onended = () => { this.live.delete(o); try { this.vib.disconnect(o.detune); } catch (_) {} };
     if (dest) o.connect(dest);
     return o;
   }
@@ -139,5 +145,15 @@ export class Synth {
 
   allOff() {
     for (const n of [...this.voices.keys()]) this.noteOff(n);
+  }
+
+  // Hard stop: cut the output immediately and stop every oscillator, tracked or not.
+  silence() {
+    if (!this.ctx) return;
+    this.voices.clear();
+    this.master.disconnect();
+    this.newMaster();
+    for (const o of this.live) { try { o.stop(); } catch (_) {} }
+    this.live.clear();
   }
 }

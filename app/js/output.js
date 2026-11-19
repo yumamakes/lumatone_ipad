@@ -66,6 +66,17 @@ export class Output {
     this.send([0xB0 | CH, 1, Math.round(m * 127)]);
   }
 
+  // Panic: hard-stop built-in sound; send note-off for every note plus All Sound Off / All Notes Off.
+  silence() {
+    this.refs.clear();
+    this.synth.silence();
+    if (this.ws && this.ws.readyState === 1) {
+      for (let n = 0; n < 128; n++) this.ws.send(new Uint8Array([0x80 | CH, n, 0]));
+      this.ws.send(new Uint8Array([0xB0 | CH, 120, 0]));
+      this.ws.send(new Uint8Array([0xB0 | CH, 123, 0]));
+    }
+  }
+
   allOff() {
     for (const n of this.refs.keys()) { this.synth.noteOff(n); this.send([0x80 | CH, n, 0]); }
     this.refs.clear();

@@ -131,6 +131,29 @@ function allOff() {
   dirty = true;
 }
 
+// Stop everything now, including notes the app lost track of.
+function silence() {
+  for (const r of touches.values()) { r.timers.forEach(clearTimeout); r.timers = []; r.notes = []; r.key = null; }
+  latched = [];
+  out.silence();
+  dirty = true;
+}
+
+function resetDefaults() {
+  silence();
+  Object.assign(S, {
+    layout: 0, tonic: 0, scaleLock: false, passType: 0, passHeld: false, latch: false,
+    current: null, prevVoicing: null, label: '',
+  });
+  synth.inst = 0;
+  out.mode = 0;
+  out.bend(0);
+  out.mod(0);
+  $('s-pitch').querySelector('i').style.left = '50%';
+  $('s-mod').querySelector('i').style.left = '0%';
+  assignContent();
+}
+
 // ---------- touch input ----------
 function onStart(id, x, y, radius) {
   const anyDown = [...touches.values()].some(r => r.key);
@@ -209,6 +232,8 @@ tap('b-sound', () => { synth.inst = (synth.inst + 1) % SOUNDS.length; });
 tap('b-out', () => { allOff(); out.mode = (out.mode + 1) % OUTPUT_MODES.length; });
 tap('b-ptype', () => { S.passType = (S.passType + 1) % PASS_TYPES.length; });
 tap('b-latch', () => { S.latch = !S.latch; if (!S.latch) releaseLatched(); });
+tap('b-silence', silence);
+tap('b-reset', resetDefaults);
 
 const pass = $('b-pass');
 pass.addEventListener('pointerdown', e => {

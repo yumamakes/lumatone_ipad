@@ -19,6 +19,8 @@ Pipeline: **Touch → Key ID → Layout → Chord engine → Output router**
 - **Pass:** in Chord grid, hold Pass and press the target chord. The app plays the passing chord(s) for an eighth note each (100 BPM), then lands on the target. Pass type picks the rule: Sec dom, Dim, Tritone, Chromatic, ii–V, Diatonic.
 - **Key:** steps through major keys by fifths. **Scale lock** darkens and silences out-of-key notes.
 - **Latch:** chords keep sounding after release until the next press.
+- **Silence:** panic button. Cuts all built-in sound immediately (including stuck or releasing voices) and sends note-off for all 128 notes plus All Sound Off / All Notes Off over MIDI.
+- **Reset:** silences, then restores defaults: Harmonic layout, C major, scale lock off, Keys sound, Built-in output, Sec dom pass type, latch off, pitch centred, mod 0.
 - **Pitch / Mod strips:** ±2 semitone bend (springs back); vibrato depth (stays).
 - Gliding a finger between keys retriggers (useful without the overlay).
 
