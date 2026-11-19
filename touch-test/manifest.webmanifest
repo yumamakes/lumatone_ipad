@@ -1,0 +1,9 @@
+{
+  "name": "Hexboard touch test",
+  "short_name": "Touch Test",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#000000"
+}

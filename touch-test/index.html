@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Touch Test">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Hexboard touch test</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; font: 13px ui-monospace, Menlo, monospace; color: #ddd; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  #bar { position: fixed; top: env(safe-area-inset-top, 0); right: 8px; display: flex; gap: 8px; padding-top: 8px; z-index: 2; }
+  #bar button { font: inherit; color: #ddd; background: #222; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="bar">
+  <button id="clear">Clear</button>
+  <button id="csv">Export CSV</button>
+</div>
+<script>
+// A2316 (iPad Air 4): 264 ppi, devicePixelRatio 2 -> 132 CSS px per inch.
+const PX_PER_MM = 132 / 25.4;      // 5.197 CSS px per mm
+const KEY_PITCH_MM = 24.15;        // centre-to-centre
+const CAP_MM = 21;                 // cap flat-to-flat
+const TIP_MM = 6;                  // conductive tip diameter
+const BOUNCE_MS = 60;              // end->start gap counted as a bounce
+const BOUNCE_MM = 5;               // ...if within this distance
+const GRAPH_MS = 3000;             // strip-chart window
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ---- state ----
+const active = new Map();   // id -> {x,y,rx,ry,rot,force,t0,samples:[{t,r}], maxR, minR}
+const log = [];             // raw rows for CSV
+const history = [];         // {t, r} for strip chart (largest active touch)
+const presses = [];         // finished presses: {dur, minR, maxR, growth}
+let lastEnd = null;         // {t,x,y}
+let bounces = 0, starts = 0, maxSimul = 0;
+let moveCount = 0, rate = 0, rateT = performance.now();
+
+const mm = px => px / PX_PER_MM;
+
+function record(type, t, now) {
+  const r = { type, t: now.toFixed(1), id: t.identifier,
+    x_mm: mm(t.clientX).toFixed(2), y_mm: mm(t.clientY).toFixed(2),
+    rx_px: (t.radiusX ?? 0).toFixed(2), ry_px: (t.radiusY ?? 0).toFixed(2),
+    rot: (t.rotationAngle ?? 0).toFixed(1), force: (t.force ?? 0).toFixed(3) };
+  log.push(r);
+}
+
+function onStart(e) {
+  e.preventDefault();
+  const now = performance.now();
+  requestWake();
+  for (const t of e.changedTouches) {
+    if (e.target.closest && e.target.closest('#bar')) continue;
+    starts++;
+    if (lastEnd && now - lastEnd.t < BOUNCE_MS &&
+        Math.hypot(mm(t.clientX) - lastEnd.x, mm(t.clientY) - lastEnd.y) < BOUNCE_MM) bounces++;
+    const r = t.radiusX || 0;
+    active.set(t.identifier, { x: t.clientX, y: t.clientY, rx: t.radiusX || 0, ry: t.radiusY || 0,
+      rot: t.rotationAngle || 0, force: t.force || 0, t0: now, samples: [{ t: now, r }], maxR: r, minR: r });
+    record('start', t, now);
+  }
+  maxSimul = Math.max(maxSimul, active.size);
+}
+
+function onMove(e) {
+  e.preventDefault();
+  const now = performance.now();
+  for (const t of e.changedTouches) {
+    const a = active.get(t.identifier);
+    if (!a) continue;
+    moveCount++;
+    Object.assign(a, { x: t.clientX, y: t.clientY, rx: t.radiusX || 0, ry: t.radiusY || 0,
+      rot: t.rotationAngle || 0, force: t.force || 0 });
+    a.samples.push({ t: now, r: a.rx });
+    a.maxR = Math.max(a.maxR, a.rx); a.minR = Math.min(a.minR, a.rx);
+    record('move', t, now);
+  }
+}
+
+function onEnd(e) {
+  e.preventDefault();
+  const now = performance.now();
+  for (const t of e.changedTouches) {
+    const a = active.get(t.identifier);
+    if (!a) continue;
+    record(e.type === 'touchcancel' ? 'cancel' : 'end', t, now);
+    // growth: radius change per ms over the first 4 samples (velocity proxy)
+    const s = a.samples, n = Math.min(4, s.length) - 1;
+    const growth = n > 0 ? (s[n].r - s[0].r) / (s[n].t - s[0].t) : 0;
+    presses.unshift({ dur: now - a.t0, minR: a.minR, maxR: a.maxR, growth, n: s.length });
+    if (presses.length > 8) presses.pop();
+    lastEnd = { t: now, x: mm(t.clientX), y: mm(t.clientY) };
+    active.delete(t.identifier);
+  }
+}
+
+const opts = { passive: false };
+document.addEventListener('touchstart', onStart, opts);
+document.addEventListener('touchmove', onMove, opts);
+document.addEventListener('touchend', onEnd, opts);
+document.addEventListener('touchcancel', onEnd, opts);
+document.addEventListener('gesturestart', e => e.preventDefault(), opts);
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+// buttons (touch handlers above would swallow clicks, so handle on touchend directly)
+function button(id, fn) {
+  const b = document.getElementById(id);
+  b.addEventListener('touchend', e => { e.stopPropagation(); fn(); });
+  b.addEventListener('click', fn);
+}
+button('clear', () => {
+  log.length = 0; history.length = 0; presses.length = 0;
+  bounces = 0; starts = 0; maxSimul = 0; lastEnd = null;
+});
+button('csv', () => {
+  const cols = ['type', 't', 'id', 'x_mm', 'y_mm', 'rx_px', 'ry_px', 'rot', 'force'];
+  const csv = [cols.join(',')].concat(log.map(r => cols.map(c => r[c]).join(','))).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'touch-log-' + Date.now() + '.csv';
+  a.click();
+});
+
+// wake lock
+let wake = null;
+async function requestWake() {
+  if (wake || !('wakeLock' in navigator)) return;
+  try { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => wake = null); } catch (_) {}
+}
+
+// ---- drawing ----
+function hex(cx, cy, flatMm) {
+  const r = (flatMm / Math.sqrt(3)) * PX_PER_MM;   // point radius, pointy-top
+  ctx.beginPath();
+  for (let k = 0; k < 6; k++) {
+    const a = Math.PI / 2 + k * Math.PI / 3;
+    ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+  }
+  ctx.closePath();
+}
+
+function drawTarget() {
+  const cx = W / 2, cy = H / 2;
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#333'; hex(cx, cy, KEY_PITCH_MM); ctx.stroke();
+  ctx.strokeStyle = '#1D9E75'; hex(cx, cy, CAP_MM); ctx.stroke();
+  ctx.strokeStyle = '#D85A30';
+  ctx.beginPath(); ctx.arc(cx, cy, (TIP_MM / 2) * PX_PER_MM, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#666';
+  ctx.fillText('test key: 24.15 mm pitch / 21 mm cap / 6 mm tip', cx - 150, cy + 80);
+}
+
+function drawTouches() {
+  for (const [id, a] of active) {
+    const rx = Math.max(a.rx, 2), ry = Math.max(a.ry, 2);
+    ctx.save();
+    ctx.translate(a.x, a.y);
+    ctx.rotate((a.rot * Math.PI) / 180);
+    ctx.fillStyle = 'rgba(250,199,117,0.35)';
+    ctx.strokeStyle = '#FAC775';
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#FAC775';
+    ctx.fillText(`#${id} r=${a.rx.toFixed(1)}px (${mm(a.rx * 2).toFixed(1)} mm dia)`, a.x + rx + 8, a.y - 4);
+    ctx.fillText(`x=${mm(a.x).toFixed(1)} y=${mm(a.y).toFixed(1)} mm  f=${a.force.toFixed(2)}`, a.x + rx + 8, a.y + 12);
+  }
+}
+
+function drawGraph(now) {
+  // track the largest active radius over time
+  let r = 0; for (const a of active.values()) r = Math.max(r, a.rx);
+  history.push({ t: now, r });
+  while (history.length && now - history[0].t > GRAPH_MS) history.shift();
+  const gx = 16, gw = Math.min(520, W - 32), gh = 120, gy = H - gh - 24;
+  ctx.strokeStyle = '#333'; ctx.strokeRect(gx, gy, gw, gh);
+  const maxR = 40;  // px; hardcoded scale
+  ctx.strokeStyle = '#5DCAA5'; ctx.beginPath();
+  history.forEach((p, i) => {
+    const x = gx + gw - ((now - p.t) / GRAPH_MS) * gw;
+    const y = gy + gh - Math.min(p.r / maxR, 1) * gh;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+  ctx.fillStyle = '#888';
+  ctx.fillText('largest touch radius, last 3 s (0-40 px)', gx, gy - 6);
+}
+
+function drawStats(now) {
+  if (now - rateT > 1000) { rate = moveCount / ((now - rateT) / 1000); moveCount = 0; rateT = now; }
+  const lines = [
+    `active: ${active.size}   max simultaneous: ${maxSimul}`,
+    `starts: ${starts}   bounces (<${BOUNCE_MS} ms, <${BOUNCE_MM} mm): ${bounces}`,
+    `move events/s: ${rate.toFixed(0)}`,
+    `log rows: ${log.length}`,
+    '',
+    'last presses (newest first):',
+    'dur ms   minR   maxR   growth px/ms   samples',
+    ...presses.map(p => `${p.dur.toFixed(0).padStart(6)}  ${p.minR.toFixed(1).padStart(5)}  ${p.maxR.toFixed(1).padStart(5)}  ${p.growth.toFixed(3).padStart(12)}  ${String(p.n).padStart(8)}`)
+  ];
+  ctx.fillStyle = '#ddd';
+  const top = 56;
+  lines.forEach((l, i) => ctx.fillText(l, 16, top + i * 17));
+}
+
+function frame() {
+  const now = performance.now();
+  ctx.clearRect(0, 0, W, H);
+  ctx.font = '13px ui-monospace, Menlo, monospace';
+  drawTarget();
+  drawGraph(now);
+  drawTouches();
+  drawStats(now);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
