@@ -27,7 +27,7 @@ A translucent hex cap slides in a hex bore. A spring between the cap's ceiling a
 | `frame.scad` | full 51-key frame (step 6) | PLA or PETG | 1 | upside down, no supports; **needs a 256 mm bed** (252.6 × 183.5 mm) |
 | `preview.scad` | cross-section check | — | — | not for printing |
 
-STLs are in `stl/`, previews in `img/`.
+STLs are in `stl/` (binary), previews in `img/`. **3D viewer:** `viewer/` — rotate, zoom, section and explode every part in the browser (open via GitHub Pages: `/hardware/viewer/`).
 
 ## Bill of materials (full overlay)
 - Translucent PETG: ~75 g (caps).

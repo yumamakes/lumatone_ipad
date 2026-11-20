@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hexboard parts viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #16171a; color: #ddd;
+    font: 14px -apple-system, system-ui, sans-serif; touch-action: none; }
+  canvas { display: block; }
+  #parts { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 6px; z-index: 2; }
+  #tools { position: fixed; left: 12px; bottom: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; z-index: 2; }
+  button { font: inherit; color: #ddd; background: #26282d; border: 1px solid #3a3d44; border-radius: 8px; padding: 8px 12px; }
+  button.on { background: #5DCAA5; border-color: #5DCAA5; color: #04342C; }
+  #explode-wrap { display: flex; align-items: center; gap: 8px; background: #26282d; border: 1px solid #3a3d44;
+    border-radius: 8px; padding: 4px 12px; }
+  #info { position: fixed; right: 12px; bottom: 12px; max-width: 44ch; text-align: right; color: #aaa; z-index: 2; line-height: 1.5; }
+  #info b { display: block; color: #fff; font-size: 17px; font-weight: 500; }
+  #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; color: #888; text-align: center; padding: 24px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="parts"></div>
+<div id="tools">
+  <button id="t-section">Section</button>
+  <button id="t-wire">Wireframe</button>
+  <span id="explode-wrap">Explode <input type="range" id="explode" min="0" max="20" step="1" value="0"></span>
+  <button id="t-reset">Reset view</button>
+</div>
+<div id="info"></div>
+<div id="msg">Loading parts…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+const STL_DIR = '../stl/';
+
+// Stack heights from hardware/common.scad (mm, z = 0 is the glass).
+const CAP_BOTTOM_Z = 12.5, CAP_TOP_Z = 21.5, CUP_TOP_Z = 8.0, CUP_H = 4.5;
+const REST_GAP = 2.0, FOAM_H = 3.5, SPIDER_TOP_Z = 9.5, CAP_CEILING_Z = 19.9;
+const PITCH = 24.15, ROW = PITCH * Math.sqrt(3) / 2, GRID_Y = -9.0;
+
+const MAT = {
+  cap: new THREE.MeshPhysicalMaterial({ color: 0x7fe0c4, transparent: true, opacity: 0.55, roughness: 0.3 }),
+  cond: new THREE.MeshStandardMaterial({ color: 0x3c3c41, roughness: 0.55 }),
+  housing: new THREE.MeshStandardMaterial({ color: 0xecebe6, roughness: 0.75 }),
+  foam: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1 }),
+  spring: new THREE.MeshStandardMaterial({ color: 0xb8bcc4, metalness: 0.8, roughness: 0.3 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0x0b0b0d, roughness: 0.15, metalness: 0.2 }),
+  ipad: new THREE.MeshStandardMaterial({ color: 0x8a8d91, metalness: 0.6, roughness: 0.4 }),
+};
+Object.values(MAT).forEach(m => { m.side = THREE.DoubleSide; });
+
+const VIEWS = [
+  { id: 'assembly', name: 'Key assembly', info: 'Test housing with one key at rest on the glass. Try Section and Explode.' },
+  { id: 'cap', name: 'Cap', file: 'cap', mat: 'cap', info: 'Translucent PETG · print top face down · qty 51' },
+  { id: 'plunger', name: 'Plunger', file: 'plunger', mat: 'cond', info: 'Conductive PLA · 8 mm head, 4 mm stem · qty 51' },
+  { id: 'tip_cup', name: 'Tip cup', file: 'tip_cup', mat: 'cond', info: 'Conductive PLA · holds a 6 mm foam disc · qty 51' },
+  { id: 'test_key', name: 'Test housing', file: 'test_key', mat: 'housing', info: 'Single-key test housing (build step 1)' },
+  { id: 'cluster7', name: '7-key cluster', file: 'cluster7', mat: 'housing', info: '7-key cluster housing (build step 3)' },
+  { id: 'frame', name: 'Frame', file: 'frame', mat: 'housing', info: 'Full 51-key frame (build step 6) · needs a 256 mm bed' },
+  { id: 'frame_keys', name: 'Frame + caps on iPad', info: 'Frame on the iPad Air 4 with all 51 caps and plungers at rest' },
+];
+
+// ---------- scene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.localClippingEnabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x16171a);
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 5000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x333340, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(150, 300, 200); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.6); fill.position.set(-200, 100, -150); scene.add(fill);
+const grid = new THREE.GridHelper(400, 40, 0x34373f, 0x23252a);
+scene.add(grid);
+
+// Parts are modelled Z-up (OpenSCAD); three.js is Y-up.
+const root = new THREE.Group();
+root.rotation.x = -Math.PI / 2;
+scene.add(root);
+
+// Section: cut away the half facing the default camera (model y < 0).
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+
+// ---------- parts ----------
+const geo = {};
+let parts = [];
+let current = null;
+
+function add(obj, explodeK) {
+  obj.userData.baseZ = obj.position.z;
+  obj.userData.k = explodeK;
+  root.add(obj);
+  parts.push(obj);
+}
+const mesh = (g, m) => new THREE.Mesh(g, m);
+
+class Helix extends THREE.Curve {
+  getPoint(t, target = new THREE.Vector3()) {
+    const a = t * Math.PI * 2 * 7;   // 7 coils
+    return target.set(3.25 * Math.cos(a), 3.25 * Math.sin(a), SPIDER_TOP_Z + t * (CAP_CEILING_Z - SPIDER_TOP_Z));
+  }
+}
+
+function buildAssembly() {
+  const glass = mesh(new THREE.BoxGeometry(60, 60, 1), MAT.glass);
+  glass.position.z = -0.5;
+  add(glass, 0);
+  const foamG = new THREE.CylinderGeometry(3, 3, FOAM_H, 32).rotateX(Math.PI / 2).translate(0, 0, FOAM_H / 2);
+  const foam = mesh(foamG, MAT.foam); foam.position.z = REST_GAP; add(foam, 0.3);
+  const cup = mesh(geo.tip_cup, MAT.cond); cup.position.z = CUP_TOP_Z - CUP_H; add(cup, 0.8);
+  add(mesh(geo.test_key, MAT.housing), 1.4);
+  add(mesh(new THREE.TubeGeometry(new Helix(), 400, 0.25, 8, false), MAT.spring), 2.0);
+  const cap = mesh(geo.cap, MAT.cap); cap.position.z = CAP_BOTTOM_Z; add(cap, 2.6);
+  const pl = mesh(geo.plunger, MAT.cond); pl.scale.z = -1; pl.position.z = CAP_TOP_Z; add(pl, 3.6);
+}
+
+function buildFrameKeys() {
+  const body = mesh(new THREE.BoxGeometry(247.6, 178.5, 6.1), MAT.ipad); body.position.z = -3.06; add(body, 0);
+  const screen = mesh(new THREE.PlaneGeometry(227.06, 157.79), MAT.glass); screen.position.z = 0.02; add(screen, 0);
+  add(mesh(geo.frame, MAT.housing), 0);
+  const pos = [];
+  for (let r = 0; r < 6; r++) {
+    const n = r % 2 ? 8 : 9;
+    for (let j = 0; j < n; j++) {
+      const q = r % 2 ? j - 3.5 : j - 4;
+      pos.push([q * PITCH, GRID_Y + (r - 2.5) * ROW]);
+    }
+  }
+  const caps = new THREE.InstancedMesh(geo.cap, MAT.cap, pos.length);
+  const pls = new THREE.InstancedMesh(geo.plunger, MAT.cond, pos.length);
+  const m = new THREE.Matrix4();
+  pos.forEach(([x, y], i) => {
+    caps.setMatrixAt(i, m.makeTranslation(x, y, CAP_BOTTOM_Z));
+    pls.setMatrixAt(i, m.makeScale(1, 1, -1).setPosition(x, y, CAP_TOP_Z));
+  });
+  add(pls, 0);
+  add(caps, 0);
+}
+
+function show(id) {
+  current = VIEWS.find(v => v.id === id);
+  root.clear();
+  parts = [];
+  if (current.file) add(mesh(geo[current.file], MAT[current.mat]), 0);
+  else if (id === 'assembly') buildAssembly();
+  else buildFrameKeys();
+  const slider = document.getElementById('explode');
+  document.getElementById('explode-wrap').style.display = id === 'assembly' ? 'flex' : 'none';
+  slider.value = 0;
+  applyExplode();
+  root.updateMatrixWorld(true);
+  const size = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3());
+  // Frame the camera on the fully exploded assembly so parts stay in view while exploding.
+  if (id === 'assembly') { slider.value = slider.max; applyExplode(); }
+  fit();
+  slider.value = 0;
+  applyExplode();
+  document.getElementById('info').innerHTML =
+    `<b>${current.name}</b>${current.info}<br>${size.x.toFixed(1)} × ${size.z.toFixed(1)} × ${size.y.toFixed(1)} mm`;
+  document.querySelectorAll('#parts button').forEach(b => b.classList.toggle('on', b.dataset.id === id));
+}
+
+function applyExplode() {
+  const e = Number(document.getElementById('explode').value);
+  for (const o of parts) o.position.z = o.userData.baseZ + e * o.userData.k;
+}
+
+function fit() {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const c = box.getCenter(new THREE.Vector3());
+  const r = size.length() / 2;
+  const dist = (r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * 0.85;
+  controls.target.copy(c);
+  camera.position.copy(c).add(new THREE.Vector3(0.55, 0.7, 1).normalize().multiplyScalar(dist));
+  camera.near = dist / 200;
+  camera.far = dist * 20;
+  camera.updateProjectionMatrix();
+  grid.position.y = box.min.y - 0.05;
+  grid.scale.setScalar(Math.max(0.15, size.x / 200));
+  return size;
+}
+
+// ---------- UI ----------
+const partsBar = document.getElementById('parts');
+VIEWS.forEach(v => {
+  const b = document.createElement('button');
+  b.textContent = v.name;
+  b.dataset.id = v.id;
+  b.addEventListener('click', () => show(v.id));
+  partsBar.appendChild(b);
+});
+
+let section = false, wire = false;
+document.getElementById('t-section').addEventListener('click', e => {
+  section = !section;
+  e.currentTarget.classList.toggle('on', section);
+  Object.values(MAT).forEach(m => { m.clippingPlanes = section ? [cutPlane] : []; m.needsUpdate = true; });
+});
+document.getElementById('t-wire').addEventListener('click', e => {
+  wire = !wire;
+  e.currentTarget.classList.toggle('on', wire);
+  Object.values(MAT).forEach(m => { m.wireframe = wire; });
+});
+document.getElementById('explode').addEventListener('input', applyExplode);
+document.getElementById('t-reset').addEventListener('click', () => show(current.id));
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- load ----------
+const loader = new STLLoader();
+try {
+  await Promise.all(['cap', 'plunger', 'tip_cup', 'test_key', 'cluster7', 'frame'].map(f =>
+    loader.loadAsync(STL_DIR + f + '.stl').then(g => { g.computeVertexNormals(); geo[f] = g; })));
+  document.getElementById('msg').remove();
+  show('assembly');
+} catch (err) {
+  document.getElementById('msg').textContent =
+    "Couldn't load the STL files. Open this page from a web server (e.g. GitHub Pages), not as a local file.";
+}
+
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
