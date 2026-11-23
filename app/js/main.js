@@ -353,8 +353,20 @@ async function requestWake() {
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && wake === null && synth.ctx) requestWake(); });
 
+// Home Screen launch has no browser bars. In a Safari tab, fall back to the
+// Fullscreen API (needs a user gesture; iPadOS shows an X to exit).
+const standalone = navigator.standalone || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+if (!standalone) $('splash').querySelector('small').textContent = 'Turns on sound · Add to Home Screen for true full screen';
+function goFullscreen() {
+  if (standalone || document.fullscreenElement || document.webkitFullscreenElement) return;
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req) Promise.resolve(req.call(el)).catch(() => {});
+}
+
 $('splash').addEventListener('pointerdown', e => {
   e.preventDefault();
+  goFullscreen();
   synth.start();
   requestWake();
   $('splash').remove();

@@ -32,6 +32,6 @@ Touch radius drives velocity (at key-down) and polyphonic aftertouch (while held
 - **MIDI** needs the page served by the bridge over plain http on your network: Safari blocks `ws://` connections from https pages.
 
 ## iPad setup
-1. Open in Safari → Share → Add to Home Screen → launch from the home screen.
+1. Open in Safari → Share → Add to Home Screen (keep "Open as Web App" on) → launch from the home screen. This is the only way to get rid of Safari's address bar. In a normal Safari tab, tapping the splash requests full screen instead, but iPadOS keeps an ✕ button on screen and an edge swipe exits it.
 2. Settings → Multitasking & Gestures → turn off four- and five-finger gestures.
 3. Optional: Guided Access during performance.
